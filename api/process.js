@@ -1,4 +1,4 @@
-// api/process.js - 最终版
+// api/process.js - 最终修复版
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -10,17 +10,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: '缺少 link 或 text' });
     }
 
-    // 调用 DeepSeek 进行提炼和分类
     const aiResult = await callDeepSeek(text);
-
-    // 写入飞书知识库
     const feishuResult = await saveToFeishu(link, aiResult.title, aiResult.summary, aiResult.category);
 
     return res.status(200).json({
       message: `已存档：${aiResult.category} - ${aiResult.title}`,
       category: aiResult.category,
       title: aiResult.title,
-      feishuResponse: feishuResult,   // 把飞书的返回带出来
+      feishuResponse: feishuResult,
     });
   } catch (error) {
     return res.status(500).json({ error: '处理失败', details: error.message });
@@ -79,10 +76,9 @@ async function saveToFeishu(link, title, summary, category) {
   }
   const token = tokenData.tenant_access_token;
 
-  // 组装内容
   const contentBody = `🔗 原始链接：${link}\n\n📂 分类：${category}\n\n📝 结构化摘要：\n${summary}`;
 
-  // 创建文档（直接带内容）
+  // 创建新版文档（docx），使用数字格式的 block_type
   const createRes = await fetch(
     `https://open.feishu.cn/open-apis/wiki/v2/spaces/${spaceId}/nodes`,
     {
@@ -92,16 +88,16 @@ async function saveToFeishu(link, title, summary, category) {
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({
-        obj_type: 'doc',
+        obj_type: 'docx',           // 新版文档
         parent_node_token: spaceId,
         title: title,
         body: {
           blocks: [
             {
-              block_type: 'text',
+              block_type: 2,        // 数字2代表文本块
               text: {
                 elements: [{ text_run: { content: contentBody } }],
-                style: {},
+                style: {},          // style 可以为空对象
               },
             },
           ],
@@ -110,6 +106,5 @@ async function saveToFeishu(link, title, summary, category) {
     }
   );
   const createData = await createRes.json();
-  // 直接返回，让上层看到完整结果
   return createData;
 }
