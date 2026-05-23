@@ -1,4 +1,4 @@
-// api/process.js - 分步创建 + 写入内容
+// api/process.js - Markdown 导入版
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -76,9 +76,12 @@ async function saveToFeishu(link, title, summary, category) {
   }
   const token = tokenData.tenant_access_token;
 
-  // 第一步：创建一个空的 doc 文档（不带 body）
-  const createRes = await fetch(
-    `https://open.feishu.cn/open-apis/wiki/v2/spaces/${spaceId}/nodes`,
+  // 构建 Markdown 内容
+  const mdContent = `# ${title}\n\n**原始链接**：${link}\n\n**分类**：${category}\n\n## 结构化摘要\n\n${summary}`;
+
+  // 使用导入 Markdown 接口创建文档
+  const importRes = await fetch(
+    `https://open.feishu.cn/open-apis/wiki/v2/spaces/${spaceId}/nodes/import`,
     {
       method: 'POST',
       headers: {
@@ -86,43 +89,13 @@ async function saveToFeishu(link, title, summary, category) {
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({
-        obj_type: 'doc',
+        obj_type: 'docx',
         parent_node_token: spaceId,
         title: title,
+        content: mdContent,
       }),
     }
   );
-  const createData = await createRes.json();
-  if (createData.code !== 0) {
-    return { step: 'create', result: createData };
-  }
-
-  const docToken = createData.data.node.obj_token;
-
-  // 第二步：往文档里追加内容
-  const contentBody = `🔗 原始链接：${link}\n\n📂 分类：${category}\n\n📝 结构化摘要：\n${summary}`;
-  
-  const updateRes = await fetch(
-    `https://open.feishu.cn/open-apis/docx/v1/documents/${docToken}/blocks/${docToken}/children`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        children: [
-          {
-            block_type: 2,
-            text: {
-              elements: [{ text_run: { content: contentBody } }],
-            },
-          },
-        ],
-        index: 0,
-      }),
-    }
-  );
-  const updateData = await updateRes.json();
-  return { step: 'update', docToken, result: updateData };
+  const importData = await importRes.json();
+  return { step: 'import', result: importData };
 }
