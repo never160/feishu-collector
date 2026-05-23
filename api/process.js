@@ -1,4 +1,4 @@
-// api/process.js - 最终修复版
+// api/process.js - 分步创建 + 写入内容
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -72,13 +72,11 @@ async function saveToFeishu(link, title, summary, category) {
   });
   const tokenData = await tokenRes.json();
   if (tokenData.code !== 0) {
-    throw new Error('获取飞书token失败: ' + JSON.stringify(tokenData));
+    return { step: 'token', result: tokenData };
   }
   const token = tokenData.tenant_access_token;
 
-  const contentBody = `🔗 原始链接：${link}\n\n📂 分类：${category}\n\n📝 结构化摘要：\n${summary}`;
-
-  // 创建新版文档（docx），使用数字格式的 block_type
+  // 第一步：创建一个空的 doc 文档（不带 body）
   const createRes = await fetch(
     `https://open.feishu.cn/open-apis/wiki/v2/spaces/${spaceId}/nodes`,
     {
@@ -88,23 +86,43 @@ async function saveToFeishu(link, title, summary, category) {
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({
-        obj_type: 'docx',           // 新版文档
+        obj_type: 'doc',
         parent_node_token: spaceId,
         title: title,
-        body: {
-          blocks: [
-            {
-              block_type: 2,        // 数字2代表文本块
-              text: {
-                elements: [{ text_run: { content: contentBody } }],
-                style: {},          // style 可以为空对象
-              },
-            },
-          ],
-        },
       }),
     }
   );
   const createData = await createRes.json();
-  return createData;
+  if (createData.code !== 0) {
+    return { step: 'create', result: createData };
+  }
+
+  const docToken = createData.data.node.obj_token;
+
+  // 第二步：往文档里追加内容
+  const contentBody = `🔗 原始链接：${link}\n\n📂 分类：${category}\n\n📝 结构化摘要：\n${summary}`;
+  
+  const updateRes = await fetch(
+    `https://open.feishu.cn/open-apis/docx/v1/documents/${docToken}/blocks/${docToken}/children`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        children: [
+          {
+            block_type: 2,
+            text: {
+              elements: [{ text_run: { content: contentBody } }],
+            },
+          },
+        ],
+        index: 0,
+      }),
+    }
+  );
+  const updateData = await updateRes.json();
+  return { step: 'update', docToken, result: updateData };
 }
